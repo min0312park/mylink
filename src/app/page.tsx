@@ -1,8 +1,32 @@
-import { dummyProfile, dummyLinks } from "../../data/links";
+"use client";
+
+import { useState, useEffect } from "react";
+import { dummyProfile, Link } from "../../data/links";
 import { Card, CardContent } from "@/components/ui/card";
+import { collection, onSnapshot, query, orderBy } from "firebase/firestore";
+import { db } from "@/lib/firebase";
 
 export default function Home() {
-  const activeLinks = dummyLinks.filter((link) => link.isVisible);
+  const [links, setLinks] = useState<Link[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const q = query(
+      collection(db, "users/anonymous/links"),
+      orderBy("createdAt", "desc")
+    );
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const fetchedLinks: Link[] = snapshot.docs.map((doc) => ({
+        id: doc.id,
+        ...doc.data()
+      })) as Link[];
+      setLinks(fetchedLinks);
+      setLoading(false);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  const activeLinks = links.filter((link) => link.isVisible);
 
   return (
     <main className="min-h-screen bg-background text-foreground flex flex-col items-center py-20 px-6 sm:px-12 selection:bg-primary/20 overflow-hidden">
