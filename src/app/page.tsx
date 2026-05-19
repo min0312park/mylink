@@ -3,16 +3,32 @@
 import { useState, useEffect } from "react";
 import { dummyProfile, Link } from "../../data/links";
 import { Card, CardContent } from "@/components/ui/card";
-import { collection, onSnapshot, query, orderBy } from "firebase/firestore";
-import { db } from "@/lib/firebase";
+import { collection, onSnapshot, query, orderBy, doc, updateDoc, increment } from "firebase/firestore";
+import { db, auth } from "@/lib/firebase";
+import { onAuthStateChanged, User } from "firebase/auth";
 
 export default function Home() {
   const [links, setLinks] = useState<Link[]>([]);
   const [loading, setLoading] = useState(true);
+  const [user, setUser] = useState<User | null>(null);
+
+  // Auth 상태 추적
+  useEffect(() => {
+    const unsubscribeAuth = onAuthStateChanged(auth, (currentUser) => {
+      setUser(currentUser);
+      if (!currentUser) {
+        setLinks([]);
+        setLoading(false);
+      }
+    });
+    return () => unsubscribeAuth();
+  }, []);
 
   useEffect(() => {
+    if (!user) return;
+    setLoading(true);
     const q = query(
-      collection(db, "users/anonymous/links"),
+      collection(db, `users/${user.uid}/links`),
       orderBy("createdAt", "desc")
     );
     const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -24,9 +40,30 @@ export default function Home() {
       setLoading(false);
     });
     return () => unsubscribe();
-  }, []);
+  }, [user]);
+
+  const handleLinkClick = async (linkId: string) => {
+    if (!user) return;
+    try {
+      const linkRef = doc(db, `users/${user.uid}/links`, linkId);
+      await updateDoc(linkRef, {
+        clickCount: increment(1)
+      });
+    } catch (error) {
+      console.error("Failed to update click count:", error);
+    }
+  };
 
   const activeLinks = links.filter((link) => link.isVisible);
+
+  if (!user) {
+    return (
+      <main className="min-h-[calc(100vh-3.5rem)] bg-background text-foreground flex flex-col items-center justify-center p-6 text-center">
+        <h2 className="text-2xl font-bold mb-2">마이링크에 오신 것을 환영합니다!</h2>
+        <p className="text-muted-foreground">시작하려면 상단의 Google 로그인 버튼을 눌러주세요.</p>
+      </main>
+    );
+  }
 
   return (
     <main className="min-h-screen bg-background text-foreground flex flex-col items-center py-20 px-6 sm:px-12 selection:bg-primary/20 overflow-hidden">
@@ -67,6 +104,7 @@ export default function Home() {
               href={link.url} 
               target="_blank" 
               rel="noopener noreferrer"
+              onClick={() => handleLinkClick(link.id)}
               className="group outline-none block"
               style={{
                 animationDelay: `${index * 120}ms`,

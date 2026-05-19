@@ -6,9 +6,10 @@ import { AddLinkForm } from "@/components/AddLinkForm";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Trash2, GripVertical, ExternalLink, Pencil, X, Check, Loader2 } from "lucide-react";
+import { Trash2, GripVertical, ExternalLink, Pencil, X, Check, Loader2, MousePointerClick } from "lucide-react";
 import { collection, addDoc, deleteDoc, doc, updateDoc, onSnapshot, query, orderBy, serverTimestamp } from "firebase/firestore";
-import { db } from "@/lib/firebase";
+import { db, auth } from "@/lib/firebase";
+import { onAuthStateChanged, User } from "firebase/auth";
 import {
   Dialog,
   DialogContent,
@@ -17,9 +18,11 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { toast } from "sonner";
 
 export default function AdminDashboard() {
   const [links, setLinks] = useState<Link[]>([]);
+  const [user, setUser] = useState<User | null>(null);
   
   // 수정 관련 상태
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -32,10 +35,22 @@ export default function AdminDashboard() {
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
+  // Auth 상태 추적
+  useEffect(() => {
+    const unsubscribeAuth = onAuthStateChanged(auth, (currentUser) => {
+      setUser(currentUser);
+    });
+    return () => unsubscribeAuth();
+  }, []);
+
   // 파이어스토어에서 실시간 데이터 가져오기
   useEffect(() => {
+    if (!user) {
+      setLinks([]);
+      return;
+    }
     const q = query(
-      collection(db, "users/anonymous/links"),
+      collection(db, `users/${user.uid}/links`),
       orderBy("createdAt", "desc")
     );
     const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -46,32 +61,38 @@ export default function AdminDashboard() {
       setLinks(fetchedLinks);
     });
     return () => unsubscribe();
-  }, []);
+  }, [user]);
 
   // 링크 추가 핸들러
   const handleAddLink = async (newLink: Link) => {
+    if (!user) return;
     try {
-      await addDoc(collection(db, "users/anonymous/links"), {
+      await addDoc(collection(db, `users/${user.uid}/links`), {
         title: newLink.title,
         url: newLink.url,
         faviconUrl: newLink.faviconUrl,
         isVisible: newLink.isVisible,
+        clickCount: 0,
         createdAt: serverTimestamp(),
       });
+      toast.success("새 링크가 추가되었습니다.");
     } catch (error) {
       console.error("Error adding document: ", error);
+      toast.error("링크 추가에 실패했습니다. 다시 시도해 주세요.");
     }
   };
 
   // 링크 삭제 확정 핸들러
   const confirmDelete = async () => {
-    if (!deleteId) return;
+    if (!deleteId || !user) return;
     setIsDeleting(true);
     try {
-      await deleteDoc(doc(db, "users/anonymous/links", deleteId));
+      await deleteDoc(doc(db, `users/${user.uid}/links`, deleteId));
       setDeleteId(null);
+      toast.success("링크가 삭제되었습니다.");
     } catch (error) {
       console.error("Error deleting document: ", error);
+      toast.error("링크 삭제에 실패했습니다.");
     } finally {
       setIsDeleting(false);
     }
@@ -92,6 +113,7 @@ export default function AdminDashboard() {
 
   // 수정 저장
   const handleEditSave = async (id: string) => {
+    if (!user) return;
     const errors: {title?: string, url?: string} = {};
     if (!editTitle.trim()) {
       errors.title = "Title is required";
@@ -125,19 +147,30 @@ export default function AdminDashboard() {
     const faviconUrl = `https://www.google.com/s2/favicons?domain=${hostname}&sz=64`;
 
     try {
-      await updateDoc(doc(db, "users/anonymous/links", id), {
+      await updateDoc(doc(db, `users/${user.uid}/links`, id), {
         title: editTitle,
         url: editUrl,
         faviconUrl,
         updatedAt: serverTimestamp(),
       });
       setEditingId(null);
+      toast.success("링크가 성공적으로 수정되었습니다.");
     } catch (error) {
       console.error("Error updating document: ", error);
+      toast.error("링크 수정에 실패했습니다.");
     } finally {
       setIsSaving(false);
     }
   };
+
+  if (!user) {
+    return (
+      <div className="min-h-[calc(100vh-3.5rem)] bg-background flex flex-col items-center justify-center p-6 text-center">
+        <h2 className="text-2xl font-bold mb-2">로그인이 필요합니다</h2>
+        <p className="text-muted-foreground">링크를 관리하려면 우측 상단의 로그인 버튼을 눌러주세요.</p>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background p-6 sm:p-12">
@@ -208,11 +241,15 @@ export default function AdminDashboard() {
                     {/* 링크 정보 */}
                     <div className="flex-1 overflow-hidden w-full">
                       <h3 className="font-semibold text-foreground truncate">{link.title}</h3>
-                      <div className="flex items-center text-sm text-muted-foreground mt-0.5">
+                      <div className="flex flex-col sm:flex-row sm:items-center text-sm text-muted-foreground mt-0.5 gap-1 sm:gap-3">
                         <a href={link.url} target="_blank" rel="noopener noreferrer" className="truncate hover:underline flex items-center">
                           {link.url}
                           <ExternalLink className="h-3 w-3 ml-1 inline" />
                         </a>
+                        <div className="flex items-center text-xs bg-muted/50 px-1.5 py-0.5 rounded-md w-fit">
+                          <MousePointerClick className="w-3 h-3 mr-1" />
+                          <span>{link.clickCount || 0} clicks</span>
+                        </div>
                       </div>
                     </div>
                     

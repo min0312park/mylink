@@ -4,6 +4,7 @@ export interface Link {
   url: string;
   faviconUrl: string;
   isVisible: boolean;
+  clickCount?: number;
 }
 
 export interface Profile {
